@@ -3,6 +3,7 @@ Module for converting audio files to different formats
 and checking for ffmpeg binary, and downloading it if not found.
 """
 
+import asyncio
 import os
 import platform
 import re
@@ -10,7 +11,6 @@ import shlex
 import shutil
 import stat
 import subprocess
-import asyncio
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
