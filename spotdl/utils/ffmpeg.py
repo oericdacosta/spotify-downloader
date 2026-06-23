@@ -10,6 +10,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import asyncio
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -32,6 +33,7 @@ __all__ = [
     "get_local_ffmpeg",
     "download_ffmpeg",
     "convert",
+    "async_convert",
 ]
 
 FFMPEG_URLS = {
@@ -405,3 +407,147 @@ def convert(
         progress_handler(100)
 
         return True, None
+
+
+async def async_convert(
+    input_file: Union[Path, Tuple[str, str]],
+    output_file: Path,
+    ffmpeg: str = "ffmpeg",
+    output_format: str = "mp3",
+    bitrate: Optional[str] = None,
+    ffmpeg_args: Optional[str] = None,
+    progress_handler: Optional[Callable[[int], None]] = None,
+) -> Tuple[bool, Optional[Dict[str, Any]]]:
+    """
+    Convert the input file to the output file asynchronously with progress handler.
+
+    ### Arguments
+    - input_file: Path to input file or tuple of (url, file_format).
+    - output_file: Path to output file.
+    - ffmpeg: ffmpeg executable to use.
+    - output_format: output format.
+    - bitrate: constant/variable bitrate.
+    - ffmpeg_args: ffmpeg arguments.
+    - progress_handler: progress handler, has to accept an integer as argument.
+
+    ### Returns
+    - Tuple of conversion status and error dictionary.
+
+    ### Notes
+    - Make sure to check if ffmpeg is installed before calling this function.
+    """
+
+    arguments: List[str] = [
+        "-nostdin",
+        "-y",
+        "-i",
+        str(input_file.resolve()) if isinstance(input_file, Path) else input_file[0],
+        "-movflags",
+        "+faststart",
+        "-v",
+        "debug",
+        "-progress",
+        "-",
+        "-nostats",
+    ]
+
+    file_format = (
+        str(input_file.suffix).split(".")[1]
+        if isinstance(input_file, Path)
+        else input_file[1]
+    )
+
+    if output_format == "opus" and file_format != "webm":
+        arguments.extend(["-c:a", "libopus"])
+    else:
+        if (
+            (output_format == "opus" and file_format == "webm")
+            or (output_format == "m4a" and file_format == "m4a")
+            and not (bitrate or ffmpeg_args)
+        ):
+            arguments.extend(["-vn", "-c:a", "copy"])
+        else:
+            arguments.extend(FFMPEG_FORMATS[output_format])
+
+    if bitrate:
+        if bitrate.isdigit():
+            arguments.extend(["-q:a", bitrate])
+        else:
+            arguments.extend(["-b:a", bitrate])
+
+    if ffmpeg_args:
+        arguments.extend(shlex.split(ffmpeg_args))
+
+    arguments.append(str(output_file.resolve()))
+
+    process = await asyncio.create_subprocess_exec(
+        ffmpeg,
+        *arguments,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+
+    if not progress_handler:
+        proc_out, _ = await process.communicate()
+
+        if process.returncode != 0:
+            version = get_ffmpeg_version(ffmpeg)
+            message = proc_out.decode("utf-8") if proc_out else ""
+
+            return False, {
+                "return_code": process.returncode,
+                "arguments": arguments,
+                "ffmpeg": ffmpeg,
+                "version": version[0],
+                "build_year": version[1],
+                "error": message,
+            }
+
+        return True, None
+
+    progress_handler(0)
+
+    out_buffer = []
+    total_dur = None
+
+    if process.stdout is not None:
+        while True:
+            out_line_bytes = await process.stdout.readline()
+            if not out_line_bytes:
+                break
+            
+            out_line = out_line_bytes.decode("utf-8", errors="replace").strip()
+            if out_line == "":
+                continue
+
+            out_buffer.append(out_line)
+
+            total_dur_match = DUR_REGEX.search(out_line)
+            if total_dur is None and total_dur_match:
+                total_dur = to_ms(**total_dur_match.groupdict())  # type: ignore
+                continue
+            if total_dur:
+                progress_time = TIME_REGEX.search(out_line)
+                if progress_time:
+                    elapsed_time = to_ms(**progress_time.groupdict())  # type: ignore
+                    progress_handler(int(elapsed_time / total_dur * 100))  # type: ignore
+
+    await process.wait()
+
+    if process.returncode != 0:
+        version = get_ffmpeg_version(ffmpeg)
+
+        return False, {
+            "return_code": process.returncode,
+            "arguments": arguments,
+            "ffmpeg": ffmpeg,
+            "version": version[0],
+            "build_year": version[1],
+            "error": "\n".join(out_buffer),
+        }
+
+    progress_handler(100)
+
+    return True, None
+
