@@ -516,7 +516,7 @@ async def async_convert(
             out_line_bytes = await process.stdout.readline()
             if not out_line_bytes:
                 break
-            
+
             out_line = out_line_bytes.decode("utf-8", errors="replace").strip()
             if out_line == "":
                 continue
@@ -550,4 +550,3 @@ async def async_convert(
     progress_handler(100)
 
     return True, None
-

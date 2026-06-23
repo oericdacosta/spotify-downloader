@@ -38,7 +38,7 @@ from spotdl.utils.config import (
     get_temp_path,
     modernize_settings,
 )
-from spotdl.utils.ffmpeg import FFmpegError, convert, async_convert, get_ffmpeg_path
+from spotdl.utils.ffmpeg import FFmpegError, async_convert, get_ffmpeg_path
 from spotdl.utils.formatter import create_file_name
 from spotdl.utils.lrc import generate_lrc
 from spotdl.utils.m3u import gen_m3u_files
@@ -422,9 +422,7 @@ class Downloader:
 
         return None
 
-    def search_and_download(
-        self, song: Song
-    ) -> Tuple[Song, Optional[Path]]:
+    def search_and_download(self, song: Song) -> Tuple[Song, Optional[Path]]:
         """
         Synchronous wrapper for async_search_and_download.
         """
@@ -645,7 +643,7 @@ class Downloader:
                         output_file=output_file,
                         song=song,
                         skip_album_art=self.settings["skip_album_art"],
-                    )
+                    ),
                 )
 
                 logger.info(
@@ -696,7 +694,7 @@ class Downloader:
                 None,
                 lambda: audio_downloader.get_download_metadata(
                     download_url, download=True
-                )
+                ),
             )
 
             if download_info is None:
@@ -728,7 +726,9 @@ class Downloader:
                 self.settings["audio_providers"][0] == "piped"
                 and self.settings["bitrate"] != "disable"
             ):
-                await self.loop.run_in_executor(None, shutil.move, str(temp_file), str(output_file))
+                await self.loop.run_in_executor(
+                    None, shutil.move, str(temp_file), str(output_file)
+                )
                 success = True
                 result = None
             else:
@@ -818,9 +818,7 @@ class Downloader:
 
                 # Run the post processor to get the sponsor segments
                 _, download_info = await self.loop.run_in_executor(
-                    None,
-                    post_processor.run,
-                    download_info
+                    None, post_processor.run, download_info
                 )
                 chapters = download_info["sponsorblock_chapters"]
 
@@ -841,9 +839,7 @@ class Downloader:
                     # Run the post processor to remove the sponsor segments
                     # this returns a list of files to delete
                     files_to_delete, download_info = await self.loop.run_in_executor(
-                        None,
-                        modify_chapters.run,
-                        download_info
+                        None, modify_chapters.run, download_info
                     )
 
                     # Delete the files that were created by the post processor
@@ -858,7 +854,7 @@ class Downloader:
                         song,
                         id3_separator=self.settings["id3_separator"],
                         skip_album_art=self.settings["skip_album_art"],
-                    )
+                    ),
                 )
             except Exception as exception:
                 raise MetadataError(
